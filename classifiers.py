@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class Attention(nn.Module):
     def __init__(self, emb_size, qsize = 50, vsize = 100):
@@ -18,8 +18,7 @@ class Attention(nn.Module):
         # x shape: batch_size x seq_len x emb_size
 
         pooled = F.avg_pool2d(x,(x.shape[1],1))
-        squeezed = torch.squeeze(pooled)
-        query = self.query_l(squeezed)
+        query = self.query_l(torch.squeeze(pooled))
         keys = self.key_l(x)
         values = self.value_l(x)
 
@@ -33,28 +32,11 @@ class Attention(nn.Module):
         output = torch.sum(values * torch.unsqueeze(attention,-1), dim = 1)
         return output
 
-class AttentionClassifier(nn.Module):
-    def __init__(self, emb_size, hidden_size = 100):
-        super().__init__()
-        self.attention = Attention(emb_size = emb_size, vsize = hidden_size)
-        self.dropout = nn.Dropout(p=0.1)
-        self.output = nn.Linear(in_features= hidden_size,
-                                out_features=1)
-        self.name = 'attn'
-
-    def forward(self, x, attention_mask = None):
-        x = torch.autograd.Variable(x)
-        x = self.attention(x, attention_mask)
-        x = self.dropout(x)
-        x = torch.tanh(x)
-        x = self.output(x)
-        return torch.sigmoid(x)
-
 
 class LSTMClassifier(nn.Module):
     def __init__(self,
                  emb_size,
-                 rnn_size = 30,
+                 rnn_size = 100,
                  device=None):
         super().__init__()
         self.lstm = nn.LSTM(input_size = emb_size,
@@ -68,18 +50,58 @@ class LSTMClassifier(nn.Module):
         self.device = device
 
 
-    def forward(self, x, batch_size, lengths):
+    def forward(self, x, lengths):
         x = torch.autograd.Variable(x)
-        lengths.sort(reverse=True)
 
         packed = pack_padded_sequence(x, lengths, batch_first=True)
-        h0 = torch.zeros(self.lstm.num_layers * 2, batch_size, self.lstm.hidden_size, device=self.device)
-        c0 = torch.zeros(self.lstm.num_layers * 2, batch_size, self.lstm.hidden_size, device=self.device)
+        h0 = torch.zeros(self.lstm.num_layers * 2, len(x), self.lstm.hidden_size, device=self.device)
+        c0 = torch.zeros(self.lstm.num_layers * 2, len(x), self.lstm.hidden_size, device=self.device)
+        self.lstm.flatten_parameters()
         output, _ = self.lstm(packed, (h0,c0))
         output, _ = pad_packed_sequence(output, batch_first=True)
         x = output[:,-1,:]
 
         x = self.dropout(x)
+        x = torch.tanh(x)
+        x = self.output(x)
+        return torch.sigmoid(x)
+
+class AttentiveLSTMClassifier(nn.Module):
+    def __init__(self,
+                 emb_size,
+                 rnn_size = 100,
+                 attn_size = 50,
+                 device=None):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size = emb_size,
+                            hidden_size = rnn_size,
+                            bidirectional = True,
+                            batch_first = True)
+        self.dropout = nn.Dropout(p=0.1)
+        self.attention = Attention(emb_size = rnn_size*2, qsize = attn_size , vsize = attn_size)
+        self.output = nn.Linear(in_features=attn_size,
+                                out_features=1)
+        self.name = 'attn'
+        self.device = device
+
+
+    def forward(self, x, lengths):
+        x = torch.autograd.Variable(x)
+
+        packed = pack_padded_sequence(x, lengths, batch_first=True)
+        h0 = torch.zeros(self.lstm.num_layers * 2, len(x), self.lstm.hidden_size, device=self.device)
+        c0 = torch.zeros(self.lstm.num_layers * 2, len(x), self.lstm.hidden_size, device=self.device)
+        self.lstm.flatten_parameters()
+        output, _ = self.lstm(packed, (h0,c0))
+        output, _ = pad_packed_sequence(output, batch_first=True)
+        x = output[:,:,:]
+        x = self.dropout(x)
+
+        max_len = lengths.tolist()[0]
+        mask = [[1.0] * l + [0.0] * (max_len - l) for l in lengths.tolist()]
+        x = self.attention(x, torch.tensor(mask, device = self.device))
+        x = self.dropout(x)
+
         x = torch.tanh(x)
         x = self.output(x)
         return torch.sigmoid(x)
