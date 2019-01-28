@@ -2,6 +2,10 @@
 Final project for Deep Learning in WS18/19
 by Marina Speranskaya
 
+### General
+
+Should be run on Python 3 from the root directory.
+
 ### Project structure
 
     |
@@ -21,6 +25,9 @@ by Marina Speranskaya
     |
     | * test set evalutaion *
     |_ evaluate.py
+    |
+    | * keras inspired TokenMapper for data preprocessing *
+    |_ token_mapper.pz
     |
     |_ data
       | * initial data split *
@@ -45,7 +52,7 @@ by Marina Speranskaya
      
  To run the evalutaion of the pretrained models:
     
-    python evaluate.py --testsize=10000 --devsize=10000 --device=gpu
+    python evaluate.py --testsize=10000 --devsize=10000 --device=gpu 
     
  You can specify the location of the model and dataset binaries, in case they are outside of the repository with:
     
@@ -87,6 +94,63 @@ by Marina Speranskaya
  ##### Output 
  
  The model binaries will be available under the `./models/`.
-    
-    
  
+ 
+ 
+ ### Results
+ 
+ Note: ELMo results may slightly differ even when run with the same settings (s. https://github.com/allenai/allennlp/blob/master/tutorials/how_to/elmo.md#notes-on-statefulness-and-non-determinism)
+    
+    
+--------------------------------------------
+
+GloVe
+
+TRAIN: 0.85% of unknown tokens.
+
+test loss: 0.112
+
+
+threshold: 0.50      acc: 0.9577   prec: 0.7295   rec: 0.6093   f1: 0.6640
+
+threshold: 0.35      acc: 0.9570   prec: 0.6768   rec: 0.7143   f1: 0.6950
+
+
+--------------------------------------------
+--------------------------------------------
+
+ELMo
+
+TRAIN: 0.00% of unknown tokens.
+
+test loss: 0.107
+
+
+threshold: 0.50      acc: 0.9568   prec: 0.6978   rec: 0.6531   f1: 0.6747
+
+threshold: 0.45      acc: 0.9567   prec: 0.6810   rec: 0.6939   f1: 0.6874
+
+
+--------------------------------------------
+--------------------------------------------
+
+BERT
+
+TRAIN: 0.01% of unknown tokens.
+
+test loss: 0.148
+
+
+threshold: 0.50      acc: 0.9452   prec: 0.7197   rec: 0.3294   f1: 0.4520
+
+threshold: 0.25      acc: 0.9425   prec: 0.5806   rec: 0.5831   f1: 0.5818
+
+
+--------------------------------------------
+--------------------------------------------
+DATASET INFO:
+       n questions   0  /  1 label distribution
+TRAIN:     946122    94 /  6
+DEV:        10000    94 /  6
+TEST:       10000    93 /  7
+--------------------------------------------

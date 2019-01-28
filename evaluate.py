@@ -42,6 +42,8 @@ for cls, datafile, modelfile, batchsize in models:
     # 1/0 label ratios, unknown token ratios for train, dev and test
     stats = data.get_stats()
 
+    break
+
     model, _ = pickle.load(open(os.path.join(args.modeldir, modelfile), 'rb'))
     model = model.to(device)
     model.device = device
@@ -123,7 +125,7 @@ print('--------------------------------------------')
 print('DATASET INFO:')
 print('       n questions   0  /  1 label distribution')
 print('TRAIN:    %7d    %2.0f / %2.0f'%(len(data.y_train), stats[0]*100,stats[1]*100))
-print('DEV:      %7d    %2.0f / %2.0f'%(len(data.y_dev), stats[4]*100,stats[5]*100))
-print('TEST:     %7d    %2.0f / %2.0f'%(len(data.y_test), stats[7]*100,stats[8]*100))
+print('DEV:      %7d    %2.0f / %2.0f'%(len(data.y_dev), stats[3]*100,stats[4]*100))
+print('TEST:     %7d    %2.0f / %2.0f'%(len(data.y_test), stats[6]*100,stats[7]*100))
 
 print('--------------------------------------------')
