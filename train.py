@@ -30,13 +30,15 @@ parser.add_argument('--batch', help='batch size while training', type=int, defau
 parser.add_argument('--devbatch', help='batch size while evaluating on dev data', type=int, default = 10)
 parser.add_argument('--trainsize', help='restriction on train dataset size', type=int)
 parser.add_argument('--devsize', help='restriction on development dataset size', type=int)
-parser.add_argument('--patience', help='number of train epochs to wait for improvement (early stopping)', type=int, default = 3)
+parser.add_argument('--patience', help='number of dev evaluations to wait for improvement (early stopping)', type=int, default = 10)
 parser.add_argument('--evalfreq', help='number of training object to print stats after', type=int, default = 2000)
 parser.add_argument('--devfreq', help='number of training object to evaluate on dev after', type=int, default = 10000)
 parser.add_argument('--embedding', help='embedding model: ELMo or BERT', default = 'bert')
 parser.add_argument('--classifier', help='classifying model: lstm or attn', default = 'lstm')
 parser.add_argument('--rnnsize', help='hidden rnn size', type = int, default = 100)
-parser.add_argument('--attnsize', help='size of attention query, keys and values', type = int, default = 50)
+parser.add_argument('--querysize', help='size of attention query, keys', type = int, default = 50)
+parser.add_argument('--valuesize', help='size of attention values', type = int, default = 50)
+parser.add_argument('--maxlen', help='max sequence length in tokens', type = int, default = 100)
 parser.add_argument('--cachedir', help='directory with BERT and ELMo weights', default = './cache/')
 parser.add_argument('--device', help='where to train the model: gpu or cpu', default='cpu')
 parser.add_argument('--load', help='whether to load pretrained model or to train from scratch', default=False, action='store_true')
@@ -53,7 +55,9 @@ EMBEDDING = args.embedding
 CLASSIFIER = args.classifier
 CACHE_DIR = args.cachedir
 RNN_SIZE = args.rnnsize
-ATTENTION_SIZE = args.attnsize
+QUERY_SIZE = args.querysize
+VALUE_SIZE = args.valuesize
+MAXLEN = args.maxlen
 device = torch.device("cuda" if torch.cuda.is_available() and args.device == 'gpu' else "cpu")
 
 ##############################################################
@@ -75,7 +79,8 @@ if CLASSIFIER == 'lstm':
 elif CLASSIFIER == 'attn':
     model = AttentiveLSTMClassifier(emb_size = EMB_SIZE,
                                     rnn_size = RNN_SIZE,
-                                    attn_size = ATTENTION_SIZE,
+                                    query_size=QUERY_SIZE,
+                                    value_size=VALUE_SIZE,
                                     device=device).to(device)
 min_loss = float('inf')
 
@@ -94,12 +99,13 @@ if args.load:
 
 print('\nLoading data...')
 if EMBEDDING == 'bert':
-    data = BertData.from_pickle(os.path.join(CACHE_DIR, 'data.%s'%EMBEDDING), device = device, cache_dir=CACHE_DIR)
+    data = BertData.from_pickle(os.path.join(CACHE_DIR, '%s.data'%EMBEDDING), device = device, cache_dir=CACHE_DIR)
 elif EMBEDDING == 'elmo':
-    data = ElmoData.from_pickle(os.path.join(CACHE_DIR, 'data.%s'%EMBEDDING), device = device, cache_dir=CACHE_DIR)
+    data = ElmoData.from_pickle(os.path.join(CACHE_DIR, '%s.data'%EMBEDDING), device = device, cache_dir=CACHE_DIR)
 if EMBEDDING == 'glove':
-    data = GloveData.from_pickle(os.path.join(CACHE_DIR, 'data.%s'%EMBEDDING), device = device)
+    data = GloveData.from_pickle(os.path.join(CACHE_DIR, '%s.data'%EMBEDDING), device = device)
 
+# truncate data
 if args.trainsize:
     data.x_train, data.y_train = data.x_train[:args.trainsize], data.y_train[:args.trainsize]
 if args.devsize:
@@ -114,7 +120,7 @@ print('Evaluate on devset every %d batches.'%DEV_EVAL_FREQ)
 
 
 ##############################################################
-#                       TRAIN MODEL                          #
+###                     TRAIN MODEL                        ###
 ##############################################################
 
 
@@ -126,13 +132,10 @@ last_update = 0
 print('\nTraining started.')
 
 for epoch in range(N_EPOCHS):  # loop over the dataset multiple times
-    # early stopping
-    if epoch - last_update > PATIENCE:
-        break
 
     running_loss = 0.0
     pred_labels = []; true_labels = []
-    for i, batch in enumerate(data.get_train_batches(BATCH_SIZE)):
+    for i, batch in enumerate(data.get_train_batches(BATCH_SIZE, MAXLEN)):
         inputs, labels, lengths = batch
 
         # zero the parameter gradients
@@ -159,23 +162,27 @@ for epoch in range(N_EPOCHS):  # loop over the dataset multiple times
             recall = recall_score(true_labels, pred_labels)
             prec = precision_score(true_labels, pred_labels)
             print('[%d, %5d, %10d] loss: %.4f   acc: %.4f   prec: %.4f   rec: %.4f   f1: %.4f' %
-                    (epoch + 1, i + 1, (i+1) * BATCH_SIZE, running_loss / (i+1), acc, prec, recall, fscore))
-            #running_loss = 0.0
+                    #(epoch + 1, i + 1, (i+1) * BATCH_SIZE, running_loss / (i+1), acc, prec, recall, fscore))
+                    (epoch + 1, i + 1, (i+1) * BATCH_SIZE, running_loss / EVAL_FREQ, acc, prec, recall, fscore))
+            running_loss = 0.0
+
 
         if i % DEV_EVAL_FREQ == DEV_EVAL_FREQ -1:
             with torch.no_grad():
                 # evaluate on devset
                 dev_loss = 0.0; pred_batch_labels = []; true_batch_labels = []
-                for dev_batch in data.get_dev_batches(BATCH_SIZE):
-                    inputs, dev_labels, lengths = dev_batch
+                n_batches = 0
+                for batch in data.get_dev_batches(BATCH_SIZE, MAXLEN):
+                    inputs, labels, lengths = batch
 
                     outputs = model(inputs, lengths = lengths)
 
-                    loss = criterion(torch.squeeze(outputs), dev_labels.float())
+                    loss = criterion(torch.squeeze(outputs), labels.float())
                     dev_loss += loss.item()
 
-                    true_batch_labels += dev_labels.cpu().int().tolist()
+                    true_batch_labels += labels.cpu().int().tolist()
                     pred_batch_labels += (torch.squeeze(outputs).cpu() > 0.5).int().tolist()
+                    n_batches +=1
 
                 # calculate dev statistics
                 acc = accuracy_score(true_batch_labels, pred_batch_labels)
@@ -183,14 +190,19 @@ for epoch in range(N_EPOCHS):  # loop over the dataset multiple times
                 recall = recall_score(true_batch_labels, pred_batch_labels)
                 prec = precision_score(true_batch_labels, pred_batch_labels)
                 print('[%d, %5d] dev loss: %.3f   acc: %.4f   prec: %.4f   rec: %.4f   f1: %.4f' %
-                      (epoch + 1, i + 1, dev_loss / DEV_EVAL_FREQ, acc, prec, recall, fscore))
+                      (epoch + 1, i + 1, dev_loss / n_batches, acc, prec, recall, fscore))
 
                 # Drop the best model.
                 if dev_loss < min_loss:
-                    last_update = epoch
+                    last_update = 0
                     min_loss = dev_loss
                     pickle.dump((model, dev_loss),
                                 open('./models/%s_%s.pkl'%(EMBEDDING, CLASSIFIER), 'wb'))
                     print('Dumped model at %s.'%time.strftime("%H:%M:%S, %d %b %Y", time.gmtime()))
+
+                # early stopping
+                last_update += 1
+                if last_update > PATIENCE:
+                    break
 
 print('Finished Training')
