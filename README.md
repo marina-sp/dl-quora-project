@@ -57,9 +57,16 @@ by Marina Speranskaya
     
  ### Re-train the models
      
+     
+ ##### Preprocessing
+ 
  Before the training can begin, the data set has to be preprocessed into an embedding specific format, which will store the datasets to `./cache/` subfolder (does all all three datasets at once):
  
-    python data.py
+    python data.py 
+ 
+ If outside of the repository, the raw dataset location can be additionally specified via `--datadir`, the location of the GloVe weights via `--glovefile`.
+ 
+ ##### Training
      
  To start the actual training for a specific embedding model (these are the calls used in this project):
     
@@ -77,7 +84,8 @@ by Marina Speranskaya
  
     python train.py --help
     
-    
+ ##### Output 
+ 
  The model binaries will be available under the `./models/`.
     
     
