@@ -69,8 +69,9 @@ class LSTMClassifier(nn.Module):
 class AttentiveLSTMClassifier(nn.Module):
     def __init__(self,
                  emb_size,
-                 rnn_size = 100,
-                 attn_size = 50,
+                 rnn_size = 200,
+                 query_size = 100,
+                 value_size = 100,
                  device=None):
         super().__init__()
         self.lstm = nn.LSTM(input_size = emb_size,
@@ -78,8 +79,8 @@ class AttentiveLSTMClassifier(nn.Module):
                             bidirectional = True,
                             batch_first = True)
         self.dropout = nn.Dropout(p=0.1)
-        self.attention = Attention(emb_size = rnn_size*2, qsize = attn_size , vsize = attn_size)
-        self.output = nn.Linear(in_features=attn_size,
+        self.attention = Attention(emb_size = rnn_size*2, qsize = query_size , vsize = value_size)
+        self.output = nn.Linear(in_features = value_size,
                                 out_features=1)
         self.name = 'attn'
         self.device = device
