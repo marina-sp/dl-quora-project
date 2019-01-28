@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from numpy.random import RandomState
+STATE = np.random.randint(0,1000)
 
 from pytorch_pretrained_bert import BertTokenizer, BertModel
 from sacremoses import MosesTokenizer
@@ -11,9 +13,9 @@ from torch.nn.utils.rnn import pad_sequence
 import torch
 
 import re, os, sys, pickle
-#import dill as pickle
-import argparse, tqdm
-from numpy.random import RandomState
+import argparse
+
+from collections import Counter
 
 
 # Abstract class implementing a batch generator
@@ -21,10 +23,9 @@ from numpy.random import RandomState
 class DataGenerator():
 
     @classmethod
-    def from_file(cls, dir = './data/', device = 'cuda', cache_dir = './cache/', state = 333):
+    def from_file(cls, device, dir = './data/', cache_dir = './cache/', state = STATE):
         ## assumes a child class specific method: __init__
-        self = cls(device = device, cache_dir = cache_dir)
-        self.state = RandomState(state)
+        self = cls(device = device, cache_dir = cache_dir, state = state)
         ## assumes a child class specific method: load_file
         trainfile = os.path.join(dir, 'train.csv')
         self.x_train, self.y_train = self.load_file(trainfile)
@@ -35,9 +36,9 @@ class DataGenerator():
         return self
 
     @classmethod
-    def from_pickle(cls, binary, device = 'cuda', cache_dir = './cache/', state = 333):
+    def from_pickle(cls, binary, device, cache_dir = './cache/', state = STATE):
         ## assumes a child class specific method: __init__
-        self = cls(device=device, cache_dir=cache_dir)
+        self = cls(device=device, cache_dir=cache_dir, state = state)
         self.x_train, self.y_train, self.x_dev, self.y_dev, self.x_test, self.y_test = (
             pickle.load(open(binary, 'rb'))
         )
@@ -47,11 +48,15 @@ class DataGenerator():
         to_dump = (self.x_train, self.y_train, self.x_dev, self.y_dev, self.x_test, self.y_test)
         pickle.dump(to_dump, open(binary, 'wb'))
 
-    def _get_batches(self, X, Y, size):
+    def _get_batches(self, X, Y, size, maxlen):
         ## assumes a child class specific method: prepare_batch
 
-        # shuffle data
+        # truncate long sequences
         X, Y = np.array(X), np.array(Y)
+        if maxlen:
+            X = np.array([sent[:maxlen] for sent in X])
+
+        # shuffle data
         shuffle_idx = np.arange(len(Y))
         self.state.shuffle(shuffle_idx)
         X, Y = X[shuffle_idx], Y[shuffle_idx]
@@ -62,35 +67,38 @@ class DataGenerator():
             x, y, lengths = self.prepare_batch((x,y))
             yield x, y, lengths
 
-    def get_train_batches(self, size):
-        for output in self._get_batches(self.x_train, self.y_train, size):
+    def get_train_batches(self, size, maxlen):
+        for output in self._get_batches(self.x_train, self.y_train, size, maxlen):
             yield output
 
-    def get_dev_batches(self, size):
-        for output in self._get_batches(self.x_dev, self.y_dev, size):
+    def get_dev_batches(self, size, maxlen):
+        for output in self._get_batches(self.x_dev, self.y_dev, size, maxlen):
             yield output
 
-    def get_test_batches(self, size):
-        for output in self._get_batches(self.x_test, self.y_test, size):
+    def get_test_batches(self, size, maxlen):
+        for output in self._get_batches(self.x_test, self.y_test, size, maxlen):
             yield output
-
-    def prepare_sentence(self, text):
-        ## assumes a child class specific method: prepare_batch
-        tok_batch = [self.preprocess(text)]
-        batch, _, _ = self.prepare_batch((tok_batch, [0]))
-        return batch
 
     def get_stats(self):
-        return
+        stats = []
+        for x,y in [(self.x_train, self.y_train), (self.x_dev, self.y_dev), (self.x_test, self.y_test)]:
+            counter = Counter(y)
+            stats.extend([counter[0]/len(y),counter[1]/len(y)])
+            unk =  [self.is_unk(token) for seq in x for token in seq]
+            stats.append(sum(unk)/len(unk))
+        return stats
 
 
 class BertData(DataGenerator):
 
-    def __init__(self, device = 'cuda', cache_dir = './cache/'):
+    def __init__(self, device, cache_dir, state):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', cache_dir = cache_dir)
         self.preprocess = lambda sent: self.tokenizer.convert_tokens_to_ids(self.tokenizer.tokenize(sent.lower()))
         self.bert = BertModel.from_pretrained('bert-base-uncased', cache_dir = cache_dir).to(device)
-        self.device = torch.device(device)
+        self.device = device
+        self.state = RandomState(state)
+        self.name = 'BERT'
+        self.is_unk = lambda token: token == self.tokenizer.vocab[self.tokenizer.wordpiece_tokenizer.unk_token]
 
     def load_file(self, filename):
         data = pd.read_csv(filename)
@@ -124,14 +132,17 @@ class BertData(DataGenerator):
 
 class ElmoData(DataGenerator):
 
-    def __init__(self, device = 'cuda', cache_dir = './cache/'):
+    def __init__(self, device, cache_dir, state):
         # tokenize sents
         self.tokenizer = MosesTokenizer()
         self.preprocess = lambda sent: self.tokenizer.tokenize(sent.lower(), escape=False)
         self.elmo = ElmoEmbedder(options_file = os.path.join(cache_dir, 'elmo_2x4096_512_2048cnn_2xhighway_options.json'),
                                  weight_file = os.path.join(cache_dir, 'elmo_2x4096_512_2048cnn_2xhighway_weights.hdf5'),
-                                 cuda_device = 0 if device == 'cuda' else -1)
-        self.device = torch.device(device)
+                                 cuda_device = 0 if device.type == 'cuda' else -1)
+        self.device = device
+        self.state = RandomState(state)
+        self.name = 'ELMo'
+        self.is_unk = lambda tok_id: False
 
     def load_file(self, filename):
         data = pd.read_csv(filename)
@@ -147,13 +158,14 @@ class ElmoData(DataGenerator):
         lengths, perm_index = lengths.sort(0, descending = True)
 
         # get the elmo embeddings
-        full_embedding_list = self.elmo.embed_batch(batch)
+        full_embedding_list, _ = self.elmo.batch_to_embeddings(batch)
 
         # average over embedding layers for every token
         # sequence[-1,:,:] for the last layer only
-        last_layer_list = [torch.tensor(sequence.sum(axis = 0), device = self.device)
-                           for sequence in full_embedding_list]
-        padded_embeddings = pad_sequence(last_layer_list, batch_first = True)
+        #last_layer_list = [torch.tensor(sequence.sum(axis = 0), device = self.device)
+        padded_embeddings = torch.stack([sequence.float().mean(0)
+                            for sequence in full_embedding_list])
+        #padded_embeddings = pad_sequence(last_layer_list, batch_first = True)
 
         # resort sentences and labels
         labels = torch.tensor(labels, device = self.device)
@@ -163,18 +175,19 @@ class ElmoData(DataGenerator):
         return padded_embeddings, labels, lengths
 
 
-## TODO: embedding matrix and DataGenerator format
 class GloveData(DataGenerator):
     def __init__(self, device, state):
         self.tokenize = lambda text: [token for sent in sent_tokenize(text)
                                             for token in word_tokenize(sent)]
         self.mapper = TokenMapper(num_words = 100000, oov_token = '<unk>')
-        self.preprocess = lambda text: self.mapper.texts_to_sequences([self.tokenize(text)])
+        self.preprocess = lambda text: self.mapper.texts_to_sequences([self.tokenize(text)])[0]
         self.state = RandomState(state)
         self.device = torch.device(device)
+        self.name = 'GloVe'
+        self.is_unk = lambda tok_id: tok_id == self.mapper.word_index.get(self.mapper.oov_token)
 
     @classmethod
-    def from_file(cls, glovefile, device = 'cuda', dir = './data/', state = 333):
+    def from_file(cls, glovefile, device, dir = './data/', state = STATE):
         self = cls(device = device, state = state)
         # load dataset
         print('Reading train data...')
@@ -192,7 +205,7 @@ class GloveData(DataGenerator):
         return self
 
     @classmethod
-    def from_pickle(cls, binary, device = 'cuda', state = 333):
+    def from_pickle(cls, binary, device, state = STATE):
         self = cls(device = device, state = state)
         self.x_train, self.y_train, self.x_dev, self.y_dev, self.x_test, self.y_test, self.embedding_matrix, self.mapper = (
             pickle.load(open(binary, 'rb'))
@@ -266,26 +279,11 @@ if __name__ == '__main__':
     parser.add_argument('--glovefile', help='path to the glove file to load', default='./cache/glove.840B.300d.txt')
     args = parser.parse_args()
 
-    #data = BertData(args.datadir)
-    #pickle.dump(data, open('cache/data.bert.test','wb'))
+    data = BertData.from_file(dir=args.datadir)
+    data.to_pickle('./cache/bert.data')
 
-    #data = ElmoData()
-    #pickle.dump(data, open('cache/data.elmo.test','wb'))
-    #data = BertData.from_file(dir = args.datadir)
-    #data.to_pickle('./cache/data.bert')
-    #loaded = BertData.from_pickle('./cache/data.bert')
-    #assert (data.x_train == loaded.x_train)
-    #assert (data.y_train == loaded.y_train)
+    data = ElmoData.from_file(dir=args.datadir)
+    data.to_pickle('./cache/elmo.data')
 
-    #data = ElmoData.from_file(dir = args.datadir)
-    #data.to_pickle('./cache/data.elmo')
-    #loaded = ElmoData.from_pickle('./cache/data.elmo')
-    #assert (data.x_train == loaded.x_train)
-    #assert (data.y_train == loaded.y_train)
-
-    data = GloveData.from_file(args.glovefile)
-    data.to_pickle('./cache/data.glove')
-    print(data.coverage)
-    loaded = GloveData.from_pickle('./cache/data.glove')
-    assert (data.x_train == loaded.x_train)
-    assert (data.y_train == loaded.y_train)
+    data = GloveData.from_file(dir=args.datadir, glovefile=args.glovefile)
+    data.to_pickle('./cache/glove.data')
