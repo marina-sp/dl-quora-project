@@ -4,7 +4,7 @@ by Marina Speranskaya
 
 ### General
 
-Should be run on Python 3 from the root directory.
+Should be run on Python 3 from the root directory. Please create empty folders like listed below before running the scripts, even if you are not copying the data, otherwise the scripts will be unable to save their results.
 
 ### Project structure
 
