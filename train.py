@@ -32,14 +32,14 @@ parser.add_argument('--trainsize', help='restriction on train dataset size', typ
 parser.add_argument('--devsize', help='restriction on development dataset size', type=int)
 parser.add_argument('--patience', help='number of dev evaluations to wait for improvement (early stopping)', type=int, default = 10)
 parser.add_argument('--evalfreq', help='number of training object to print stats after', type=int, default = 2000)
-parser.add_argument('--devfreq', help='number of training object to evaluate on dev after', type=int, default = 10000)
+parser.add_argument('--devfreq', help='number of training object to evaluate on devset after', type=int, default = 10000)
 parser.add_argument('--embedding', help='embedding model: ELMo or BERT', default = 'bert')
-parser.add_argument('--classifier', help='classifying model: lstm or attn', default = 'lstm')
+parser.add_argument('--classifier', help='classifying model: lstm or attn', default = 'attn')
 parser.add_argument('--rnnsize', help='hidden rnn size', type = int, default = 100)
 parser.add_argument('--querysize', help='size of attention query, keys', type = int, default = 50)
 parser.add_argument('--valuesize', help='size of attention values', type = int, default = 50)
 parser.add_argument('--maxlen', help='max sequence length in tokens', type = int, default = 100)
-parser.add_argument('--cachedir', help='directory with BERT and ELMo weights', default = './cache/')
+parser.add_argument('--cachedir', help='directory with BERT, ELMo and GloVe weights', default = './cache/')
 parser.add_argument('--device', help='where to train the model: gpu or cpu', default='cpu')
 parser.add_argument('--load', help='whether to load pretrained model or to train from scratch', default=False, action='store_true')
 
@@ -73,12 +73,12 @@ elif EMBEDDING == 'glove':
     EMB_SIZE = 300
 
 if CLASSIFIER == 'lstm':
-    model = LSTMClassifier(emb_size = EMB_SIZE,
-                           rnn_size = RNN_SIZE,
+    model = LSTMClassifier(emb_size=EMB_SIZE,
+                           rnn_size=RNN_SIZE,
                            device=device).to(device)
 elif CLASSIFIER == 'attn':
-    model = AttentiveLSTMClassifier(emb_size = EMB_SIZE,
-                                    rnn_size = RNN_SIZE,
+    model = AttentiveLSTMClassifier(emb_size=EMB_SIZE,
+                                    rnn_size=RNN_SIZE,
                                     query_size=QUERY_SIZE,
                                     value_size=VALUE_SIZE,
                                     device=device).to(device)
@@ -88,6 +88,7 @@ if args.load:
     modelfile = './models/%s_%s.pkl'%(EMBEDDING, CLASSIFIER)
     if os.path.isfile(modelfile):
         model, min_loss = pickle.load(open(modelfile,'rb'))
+        model.to(device)
         print('Successfully loaded model from %s.'%modelfile)
     else:
         print('Could not find such model. The training will start from scratch.')
@@ -203,6 +204,7 @@ for epoch in range(N_EPOCHS):  # loop over the dataset multiple times
                 # early stopping
                 last_update += 1
                 if last_update > PATIENCE:
-                    break
+                    print('Finished Training due to no improvement')
+                    exit(0)
 
 print('Finished Training')
