@@ -45,11 +45,11 @@ by Marina Speranskaya
      
  To run the evalutaion of the pretrained models:
     
-    python evaluate.py --testsize=10000 --devsize=10000 --device=gpu` 
+    python evaluate.py --testsize=10000 --devsize=10000 --device=gpu
     
  You can specify the location of the model and dataset binaries, in case they are outside of the repository with:
     
-    python evaluate.py --testsize=10000 --devsize=10000 --cachedir=./cache/ --modeldir=./models/ --device=gpu` 
+    python evaluate.py --testsize=10000 --devsize=10000 --cachedir=./cache/ --modeldir=./models/ --device=gpu 
 
  For more options see
  
@@ -71,7 +71,7 @@ by Marina Speranskaya
  
  To explicitly specify the location of the pre-trained embedding model weights, set the `cachedir` argument:
     
-    python train.py --cachedir=./cache/ --batch=15 --embedding=bert --classifier=attn --devsize=10000 --evalfreq=1000 --devfreq=20000 --device=gpu --rnnsize=400 --querysize=200 --valuesize=300 --maxlen=50 
+    python train.py --cachedir=./cache/ --batch=15 --embedding=bert --devsize=10000 --evalfreq=1000 --devfreq=20000 --device=gpu --rnnsize=400 --querysize=200 --valuesize=300 --maxlen=50 
 
  For more options see:
  
