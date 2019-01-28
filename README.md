@@ -149,8 +149,13 @@ threshold: 0.25      acc: 0.9425   prec: 0.5806   rec: 0.5831   f1: 0.5818
 --------------------------------------------
 --------------------------------------------
 DATASET INFO:
-       n questions   0  /  1 label distribution
+
+split:   n questions   0  /  1 label distribution
+
 TRAIN:     946122    94 /  6
+
 DEV:        10000    94 /  6
+
 TEST:       10000    93 /  7
+
 --------------------------------------------
